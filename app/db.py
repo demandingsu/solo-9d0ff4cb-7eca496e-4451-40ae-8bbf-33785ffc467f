@@ -41,6 +41,42 @@ CREATE TABLE IF NOT EXISTS withdrawals (
     visitor_id  TEXT    NOT NULL PRIMARY KEY,
     withdrawn_at TEXT   NOT NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- Catalog (exhibit selection for an online exhibition)
+--
+-- The catalog is versioned with non-overlapping validity ranges. A successful
+-- edit only writes the changed exhibit: the previous row is closed at the
+-- prior version and one new row is inserted. Historical versions therefore
+-- never require copying the whole catalog, and a query pinned to version V
+-- reads exactly the state visible at V.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS catalog_versions (
+    version     INTEGER NOT NULL PRIMARY KEY,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS catalog_entries (
+    entry_id    INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    exhibit_id  TEXT    NOT NULL,
+    status      TEXT    NOT NULL CHECK (status IN ('online', 'offline')),
+    -- JSON arrays of material tags / theme tags, de-duplicated on write.
+    materials   TEXT    NOT NULL,
+    themes      TEXT    NOT NULL,
+    valid_from  INTEGER NOT NULL REFERENCES catalog_versions(version),
+    valid_to    INTEGER,
+    updated_at  TEXT    NOT NULL,
+    CHECK (valid_to IS NULL OR valid_to >= valid_from)
+);
+
+-- Exactly one open-ended (current) row per exhibit. Closing the previous row
+-- and inserting the replacement happen in the same write transaction.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_catalog_current_entry
+    ON catalog_entries (exhibit_id) WHERE valid_to IS NULL;
+CREATE INDEX IF NOT EXISTS idx_catalog_version_window
+    ON catalog_entries (valid_from, valid_to);
+CREATE INDEX IF NOT EXISTS idx_catalog_exhibit_history
+    ON catalog_entries (exhibit_id, valid_from);
 """
 
 
